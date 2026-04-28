@@ -9,9 +9,8 @@ const envSchema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
 
-  // NextAuth
-  NEXTAUTH_SECRET: z.string().min(32),
-  NEXTAUTH_URL: z.string().url(),
+  // Session (iron-session)
+  SESSION_SECRET: z.string().min(32),
 
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
