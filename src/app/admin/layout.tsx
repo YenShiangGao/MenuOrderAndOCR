@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { AdminSidebar } from "@/components/admin/sidebar";
+import { Toaster } from "@/components/ui/sonner";
 
 export default async function AdminLayout({
   children,
@@ -16,6 +17,7 @@ export default async function AdminLayout({
     <div className="flex min-h-screen">
       <AdminSidebar email={session.email} role={session.role} />
       <main className="flex-1 p-8">{children}</main>
+      <Toaster richColors position="top-right" />
     </div>
   );
 }
