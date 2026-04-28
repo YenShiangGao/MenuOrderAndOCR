@@ -1,4 +1,9 @@
+import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
+
+export const metadata: Metadata = {
+  title: "菜單",
+};
 
 export const revalidate = 60; // ISR: 後台改完最多 60 秒生效
 
@@ -25,7 +30,7 @@ export default async function MenuPage() {
   const visibleCategories = categories.filter((c) => c.items.length > 0);
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8 md:py-16">
+    <div className="mx-auto max-w-3xl px-4 py-8 md:py-16">
       <header className="mb-12 text-center">
         <h1 className="text-3xl font-bold md:text-4xl">菜單</h1>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -87,6 +92,6 @@ export default async function MenuPage() {
           ))}
         </div>
       )}
-    </main>
+    </div>
   );
 }
