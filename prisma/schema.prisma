@@ -1,0 +1,68 @@
+// Restaurant System — M1 schema
+// 涵蓋:後台帳號、菜單分類、菜品(含當日售完)
+// M2 會加入:Customer, Order, OrderItem
+// M3 會加入:Expense, Employee, Salary, OcrLog, SheetSyncEvent
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============ 後台帳號 ============
+model AdminUser {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  role         AdminRole  @default(STAFF)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("admin_users")
+}
+
+enum AdminRole {
+  OWNER    // 老闆,所有權限
+  MANAGER  // 店長,可管理菜單與帳號
+  STAFF    // 一般員工,可日常操作
+}
+
+// ============ 菜單 ============
+model MenuCategory {
+  id        String     @id @default(cuid())
+  name      String
+  sortOrder Int        @default(0)
+  isActive  Boolean    @default(true)
+  items     MenuItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id          String       @id @default(cuid())
+  categoryId  String
+  category    MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  name        String
+  description String?
+  // 價格用整數存,單位:元(避免浮點誤差)
+  price       Int
+  imageUrl    String?
+  // 永久上下架(老闆控)
+  isAvailable Boolean      @default(true)
+  // 當日售完戳記;前台檢查 soldOutAt 是否為今天,過了 0 點自動失效不需 cron
+  soldOutAt   DateTime?
+  sortOrder   Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([categoryId])
+  @@index([isAvailable])
+  @@map("menu_items")
+}
