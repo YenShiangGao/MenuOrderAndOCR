@@ -99,3 +99,103 @@ export async function reorderCategoriesAction(
   revalidatePath("/admin/menu/categories");
   return { ok: true };
 }
+
+// ============ Menu Item ============
+const itemSchema = z.object({
+  name: z.string().min(1, "品名不可空白").max(50, "品名最多 50 字").trim(),
+  description: z.string().max(200, "描述最多 200 字").trim().optional(),
+  price: z
+    .number()
+    .int("價格只能是整數")
+    .min(0, "價格不可為負")
+    .max(99999, "價格過大"),
+  categoryId: z.string().min(1, "請選擇分類"),
+});
+
+const createItemSchema = itemSchema;
+const updateItemSchema = itemSchema.partial().extend({
+  id: z.string().min(1),
+  isAvailable: z.boolean().optional(),
+});
+
+export async function createItemAction(
+  input: z.input<typeof createItemSchema>,
+): Promise<ActionResult> {
+  await requireAuth();
+  const parsed = createItemSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "輸入無效" };
+  }
+
+  const max = await prisma.menuItem.findFirst({
+    where: { categoryId: parsed.data.categoryId },
+    orderBy: { sortOrder: "desc" },
+    select: { sortOrder: true },
+  });
+
+  await prisma.menuItem.create({
+    data: {
+      name: parsed.data.name,
+      description: parsed.data.description ?? null,
+      price: parsed.data.price,
+      categoryId: parsed.data.categoryId,
+      sortOrder: (max?.sortOrder ?? 0) + 1,
+    },
+  });
+  revalidatePath("/admin/menu/items");
+  return { ok: true };
+}
+
+export async function updateItemAction(
+  input: z.input<typeof updateItemSchema>,
+): Promise<ActionResult> {
+  await requireAuth();
+  const parsed = updateItemSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "輸入無效" };
+  }
+
+  const { id, ...rest } = parsed.data;
+  await prisma.menuItem.update({
+    where: { id },
+    data: {
+      ...(rest.name !== undefined && { name: rest.name }),
+      ...(rest.description !== undefined && { description: rest.description }),
+      ...(rest.price !== undefined && { price: rest.price }),
+      ...(rest.categoryId !== undefined && { categoryId: rest.categoryId }),
+      ...(rest.isAvailable !== undefined && { isAvailable: rest.isAvailable }),
+    },
+  });
+  revalidatePath("/admin/menu/items");
+  return { ok: true };
+}
+
+export async function deleteItemAction(id: string): Promise<ActionResult> {
+  await requireAuth();
+  await prisma.menuItem.delete({ where: { id } });
+  revalidatePath("/admin/menu/items");
+  return { ok: true };
+}
+
+export async function toggleSoldOutAction(
+  id: string,
+): Promise<ActionResult> {
+  await requireAuth();
+  const item = await prisma.menuItem.findUnique({
+    where: { id },
+    select: { soldOutAt: true },
+  });
+  if (!item) return { ok: false, error: "找不到菜品" };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const isSoldOutToday =
+    item.soldOutAt !== null && item.soldOutAt >= today;
+
+  await prisma.menuItem.update({
+    where: { id },
+    data: { soldOutAt: isSoldOutToday ? null : new Date() },
+  });
+  revalidatePath("/admin/menu/items");
+  return { ok: true };
+}
