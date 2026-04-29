@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { deleteMenuImage, uploadMenuImage } from "./storage";
 
 async function requireAuth() {
   const session = await getSession();
@@ -101,7 +102,7 @@ export async function reorderCategoriesAction(
 }
 
 // ============ Menu Item ============
-const itemSchema = z.object({
+const itemFieldsSchema = z.object({
   name: z.string().min(1, "品名不可空白").max(50, "品名最多 50 字").trim(),
   description: z.string().max(200, "描述最多 200 字").trim().optional(),
   price: z
@@ -112,19 +113,37 @@ const itemSchema = z.object({
   categoryId: z.string().min(1, "請選擇分類"),
 });
 
-const createItemSchema = itemSchema;
-const updateItemSchema = itemSchema.partial().extend({
-  id: z.string().min(1),
-  isAvailable: z.boolean().optional(),
-});
+function parseItemFields(formData: FormData) {
+  const description = (formData.get("description") as string | null)?.trim();
+  return itemFieldsSchema.safeParse({
+    name: formData.get("name"),
+    description: description ? description : undefined,
+    price: Number(formData.get("price")),
+    categoryId: formData.get("categoryId"),
+  });
+}
+
+function getOptionalFile(formData: FormData, key: string): File | null {
+  const value = formData.get(key);
+  if (value instanceof File && value.size > 0) return value;
+  return null;
+}
 
 export async function createItemAction(
-  input: z.input<typeof createItemSchema>,
+  formData: FormData,
 ): Promise<ActionResult> {
   await requireAuth();
-  const parsed = createItemSchema.safeParse(input);
+  const parsed = parseItemFields(formData);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "輸入無效" };
+  }
+
+  let imageUrl: string | null = null;
+  const imageFile = getOptionalFile(formData, "image");
+  if (imageFile) {
+    const upload = await uploadMenuImage(imageFile);
+    if (!upload.ok) return { ok: false, error: upload.error };
+    imageUrl = upload.url;
   }
 
   const max = await prisma.menuItem.findFirst({
@@ -139,41 +158,108 @@ export async function createItemAction(
       description: parsed.data.description ?? null,
       price: parsed.data.price,
       categoryId: parsed.data.categoryId,
+      imageUrl,
       sortOrder: (max?.sortOrder ?? 0) + 1,
     },
   });
   revalidatePath("/admin/menu/items");
+  revalidatePath("/menu");
   return { ok: true };
 }
 
 export async function updateItemAction(
-  input: z.input<typeof updateItemSchema>,
+  formData: FormData,
 ): Promise<ActionResult> {
   await requireAuth();
-  const parsed = updateItemSchema.safeParse(input);
+  const id = formData.get("id");
+  if (typeof id !== "string" || id.length === 0) {
+    return { ok: false, error: "缺少 id" };
+  }
+
+  const parsed = parseItemFields(formData);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "輸入無效" };
   }
 
-  const { id, ...rest } = parsed.data;
+  const isAvailableRaw = formData.get("isAvailable");
+  const isAvailable =
+    isAvailableRaw === "true" || isAvailableRaw === "false"
+      ? isAvailableRaw === "true"
+      : undefined;
+
+  const removeImage = formData.get("removeImage") === "true";
+  const imageFile = getOptionalFile(formData, "image");
+
+  const existing = await prisma.menuItem.findUnique({
+    where: { id },
+    select: { imageUrl: true },
+  });
+  if (!existing) return { ok: false, error: "找不到菜品" };
+
+  let imageUrlPatch: { imageUrl: string | null } | undefined;
+  let oldImageToDelete: string | null = null;
+
+  if (imageFile) {
+    const upload = await uploadMenuImage(imageFile);
+    if (!upload.ok) return { ok: false, error: upload.error };
+    imageUrlPatch = { imageUrl: upload.url };
+    oldImageToDelete = existing.imageUrl;
+  } else if (removeImage) {
+    imageUrlPatch = { imageUrl: null };
+    oldImageToDelete = existing.imageUrl;
+  }
+
   await prisma.menuItem.update({
     where: { id },
     data: {
-      ...(rest.name !== undefined && { name: rest.name }),
-      ...(rest.description !== undefined && { description: rest.description }),
-      ...(rest.price !== undefined && { price: rest.price }),
-      ...(rest.categoryId !== undefined && { categoryId: rest.categoryId }),
-      ...(rest.isAvailable !== undefined && { isAvailable: rest.isAvailable }),
+      name: parsed.data.name,
+      description: parsed.data.description ?? null,
+      price: parsed.data.price,
+      categoryId: parsed.data.categoryId,
+      ...(isAvailable !== undefined && { isAvailable }),
+      ...(imageUrlPatch ?? {}),
     },
   });
+
+  if (oldImageToDelete) {
+    await deleteMenuImage(oldImageToDelete);
+  }
+
   revalidatePath("/admin/menu/items");
+  revalidatePath("/menu");
+  return { ok: true };
+}
+
+export async function toggleItemAvailableAction(
+  id: string,
+): Promise<ActionResult> {
+  await requireAuth();
+  const item = await prisma.menuItem.findUnique({
+    where: { id },
+    select: { isAvailable: true },
+  });
+  if (!item) return { ok: false, error: "找不到菜品" };
+  await prisma.menuItem.update({
+    where: { id },
+    data: { isAvailable: !item.isAvailable },
+  });
+  revalidatePath("/admin/menu/items");
+  revalidatePath("/menu");
   return { ok: true };
 }
 
 export async function deleteItemAction(id: string): Promise<ActionResult> {
   await requireAuth();
+  const item = await prisma.menuItem.findUnique({
+    where: { id },
+    select: { imageUrl: true },
+  });
   await prisma.menuItem.delete({ where: { id } });
+  if (item?.imageUrl) {
+    await deleteMenuImage(item.imageUrl);
+  }
   revalidatePath("/admin/menu/items");
+  revalidatePath("/menu");
   return { ok: true };
 }
 
@@ -197,5 +283,6 @@ export async function toggleSoldOutAction(
     data: { soldOutAt: isSoldOutToday ? null : new Date() },
   });
   revalidatePath("/admin/menu/items");
+  revalidatePath("/menu");
   return { ok: true };
 }

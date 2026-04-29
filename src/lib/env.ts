@@ -4,10 +4,10 @@ const envSchema = z.object({
   // Database
   DATABASE_URL: z.string().url(),
 
-  // Supabase
-  NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  // Supabase Storage
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+  SUPABASE_STORAGE_BUCKET: z.string().min(1).default("menu-images"),
 
   // Session (iron-session)
   SESSION_SECRET: z.string().min(32),

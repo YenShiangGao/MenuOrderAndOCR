@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = {
@@ -56,8 +57,23 @@ export default async function MenuPage() {
                   return (
                     <li
                       key={item.id}
-                      className="flex items-start justify-between gap-4 border-b pb-4 last:border-b-0"
+                      className="flex items-start gap-4 border-b pb-4 last:border-b-0"
                     >
+                      {item.imageUrl && (
+                        <div className="relative size-16 shrink-0 overflow-hidden rounded-md sm:size-20">
+                          <Image
+                            src={item.imageUrl}
+                            alt={item.name}
+                            fill
+                            sizes="(max-width: 640px) 64px, 80px"
+                            className={
+                              isSoldOut
+                                ? "object-cover opacity-50"
+                                : "object-cover"
+                            }
+                          />
+                        </div>
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline gap-2">
                           <h3

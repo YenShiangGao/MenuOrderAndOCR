@@ -27,6 +27,7 @@ export default async function ItemsPage() {
     price: it.price,
     isAvailable: it.isAvailable,
     isSoldOutToday: it.soldOutAt !== null && it.soldOutAt >= startOfToday,
+    imageUrl: it.imageUrl,
     category: { id: it.category.id, name: it.category.name },
   }));
 

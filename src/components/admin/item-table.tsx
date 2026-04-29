@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import Image from "next/image";
+import { ImageIcon, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Table,
@@ -27,8 +28,8 @@ import {
 } from "./item-form-dialog";
 import {
   deleteItemAction,
+  toggleItemAvailableAction,
   toggleSoldOutAction,
-  updateItemAction,
 } from "@/server/menu";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +40,7 @@ export type ItemRow = {
   price: number;
   isAvailable: boolean;
   isSoldOutToday: boolean;
+  imageUrl: string | null;
   category: { id: string; name: string };
 };
 
@@ -59,10 +61,7 @@ export function ItemTable({
 
   function handleToggleAvailable(item: ItemRow) {
     startTransition(async () => {
-      const result = await updateItemAction({
-        id: item.id,
-        isAvailable: !item.isAvailable,
-      });
+      const result = await toggleItemAvailableAction(item.id);
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -108,6 +107,7 @@ export function ItemTable({
       price: item.price,
       categoryId: item.category.id,
       isAvailable: item.isAvailable,
+      imageUrl: item.imageUrl,
     });
   }
 
@@ -128,6 +128,7 @@ export function ItemTable({
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-16">圖片</TableHead>
               <TableHead>品名</TableHead>
               <TableHead className="w-32">分類</TableHead>
               <TableHead className="w-24">價格</TableHead>
@@ -140,7 +141,7 @@ export function ItemTable({
             {items.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={7}
                   className="py-12 text-center text-sm text-muted-foreground"
                 >
                   {categories.length === 0
@@ -151,6 +152,23 @@ export function ItemTable({
             ) : (
               items.map((item) => (
                 <TableRow key={item.id}>
+                  <TableCell>
+                    {item.imageUrl ? (
+                      <div className="relative size-10 overflow-hidden rounded-md">
+                        <Image
+                          src={item.imageUrl}
+                          alt={item.name}
+                          fill
+                          sizes="40px"
+                          className="object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex size-10 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                        <ImageIcon className="size-4" />
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <div className="font-medium">{item.name}</div>
                     {item.description && (

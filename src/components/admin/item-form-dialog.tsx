@@ -1,6 +1,16 @@
 "use client";
 
-import { useState, useTransition, type ReactElement } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type ChangeEvent,
+  type ReactElement,
+} from "react";
+import Image from "next/image";
+import { ImagePlus, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -23,10 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  createItemAction,
-  updateItemAction,
-} from "@/server/menu";
+import { createItemAction, updateItemAction } from "@/server/menu";
 
 export type CategoryOption = {
   id: string;
@@ -40,6 +47,7 @@ export type ItemFormValues = {
   price: number;
   categoryId: string;
   isAvailable: boolean;
+  imageUrl: string | null;
 };
 
 type Props = {
@@ -56,7 +64,11 @@ const emptyForm: ItemFormValues = {
   price: 0,
   categoryId: "",
   isAvailable: true,
+  imageUrl: null,
 };
+
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_BYTES = 5 * 1024 * 1024;
 
 export function ItemFormDialog({
   trigger,
@@ -68,19 +80,67 @@ export function ItemFormDialog({
   const isEdit = !!item;
   const [internalOpen, setInternalOpen] = useState(false);
   const [form, setForm] = useState<ItemFormValues>(item ?? emptyForm);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [removeImage, setRemoveImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isPending, startTransition] = useTransition();
 
   const isControlled = open !== undefined;
   const dialogOpen = isControlled ? open : internalOpen;
+
+  // ObjectURL 由 imageFile 衍生(避免在 effect 裡 setState)
+  const previewUrl = useMemo(
+    () => (imageFile ? URL.createObjectURL(imageFile) : null),
+    [imageFile],
+  );
+
+  // 換檔或 unmount 時釋放 ObjectURL
+  useEffect(() => {
+    if (!previewUrl) return;
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
 
   function setOpen(v: boolean) {
     if (isControlled) {
       onOpenChange?.(v);
     } else {
       setInternalOpen(v);
-      if (v) setForm(item ?? emptyForm);
+      if (v) {
+        setForm(item ?? emptyForm);
+        setImageFile(null);
+        setRemoveImage(false);
+      }
     }
   }
+
+  function handleFilePick(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      toast.error("只支援 JPG / PNG / WebP");
+      e.target.value = "";
+      return;
+    }
+    if (file.size > MAX_BYTES) {
+      toast.error("圖片不可超過 5MB");
+      e.target.value = "";
+      return;
+    }
+    setImageFile(file);
+    setRemoveImage(false);
+  }
+
+  function handleClearImage() {
+    if (imageFile) {
+      setImageFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } else if (form.imageUrl && !removeImage) {
+      setRemoveImage(true);
+    }
+  }
+
+  // 顯示用:優先顯示新檔預覽,否則顯示舊圖(若沒被標記移除)
+  const showPreview = previewUrl ?? (!removeImage ? form.imageUrl : null);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -93,29 +153,35 @@ export function ItemFormDialog({
       return;
     }
 
+    const fd = new FormData();
+    fd.append("name", form.name);
+    fd.append("description", form.description);
+    fd.append("price", String(form.price));
+    fd.append("categoryId", form.categoryId);
+    if (imageFile) fd.append("image", imageFile);
+
     startTransition(async () => {
-      const result = isEdit
-        ? await updateItemAction({
-            id: item.id!,
-            name: form.name,
-            description: form.description || undefined,
-            price: form.price,
-            categoryId: form.categoryId,
-            isAvailable: form.isAvailable,
-          })
-        : await createItemAction({
-            name: form.name,
-            description: form.description || undefined,
-            price: form.price,
-            categoryId: form.categoryId,
-          });
+      let result;
+      if (isEdit && item?.id) {
+        fd.append("id", item.id);
+        fd.append("isAvailable", String(form.isAvailable));
+        if (removeImage) fd.append("removeImage", "true");
+        result = await updateItemAction(fd);
+      } else {
+        result = await createItemAction(fd);
+      }
+
       if (!result.ok) {
         toast.error(result.error);
         return;
       }
       toast.success(isEdit ? "已更新菜品" : "已新增菜品");
       setOpen(false);
-      if (!isEdit) setForm(emptyForm);
+      if (!isEdit) {
+        setForm(emptyForm);
+        setImageFile(null);
+        setRemoveImage(false);
+      }
     });
   }
 
@@ -127,7 +193,7 @@ export function ItemFormDialog({
           <DialogHeader>
             <DialogTitle>{isEdit ? "編輯菜品" : "新增菜品"}</DialogTitle>
             <DialogDescription>
-              填寫菜品基本資訊。圖片上傳將於後續版本提供。
+              填寫菜品基本資訊。圖片可選,支援 JPG / PNG / WebP,單張 5MB 內。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -191,6 +257,56 @@ export function ItemFormDialog({
                 placeholder="例如:慢燉 8 小時的紅燒湯頭"
               />
             </div>
+
+            <div className="space-y-2">
+              <Label>圖片(選填)</Label>
+              {showPreview ? (
+                <div className="relative h-40 w-40 overflow-hidden rounded-md border">
+                  <Image
+                    src={showPreview}
+                    alt="菜品圖片預覽"
+                    fill
+                    sizes="160px"
+                    className="object-cover"
+                    unoptimized={!!previewUrl}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleClearImage}
+                    aria-label="移除圖片"
+                    className="absolute right-1 top-1 rounded-full bg-background/80 p-1 text-foreground shadow-sm hover:bg-background"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex h-40 w-40 flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-border bg-muted/30 text-muted-foreground transition-colors hover:bg-muted/50"
+                >
+                  <ImagePlus className="size-6" />
+                  <span className="text-xs">選擇圖片</span>
+                </button>
+              )}
+              {showPreview && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                >
+                  換一張
+                </button>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={handleFilePick}
+              />
+            </div>
+
             {isEdit && (
               <div className="flex items-center justify-between rounded-md border p-3">
                 <div>
