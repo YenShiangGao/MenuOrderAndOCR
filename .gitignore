@@ -33,6 +33,10 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+# 防呆:有些情境會手動匯出環境變數到 txt(例如貼到 Vercel),也擋掉
+env.txt
+env-*.txt
+*.env.txt
 
 # vercel
 .vercel
